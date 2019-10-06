@@ -9,8 +9,8 @@
  * the file.
  *
  */
-#ifndef DW1001_DEV_H
-#define DW1001_DEV_H
+#ifndef CUSTOM_BOARD_H
+#define CUSTOM_BOARD_H
 
 #define DW1000_RST    24
 #define DW1000_IRQ    19
@@ -131,4 +131,4 @@
                                  .rc_temp_ctiv  = 0,                                \
                                  .xtal_accuracy = NRF_CLOCK_LF_XTAL_ACCURACY_20_PPM}
 
-#endif // PCA10040_H
+#endif // CUSTOM_BOARD_H

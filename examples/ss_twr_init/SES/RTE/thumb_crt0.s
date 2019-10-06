@@ -1,13 +1,45 @@
-// SEGGER Embedded Studio, runtime support.
-//
-// Copyright (c) 2014-2017 SEGGER Microcontroller GmbH & Co KG
-// Copyright (c) 2001-2017 Rowley Associates Limited.
-//
-// This file may be distributed under the terms of the License Agreement
-// provided with this software.
-//
-// THIS FILE IS PROVIDED AS IS WITH NO WARRANTY OF ANY KIND, INCLUDING THE
-// WARRANTY OF DESIGN, MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+// **********************************************************************
+// *                    SEGGER Microcontroller GmbH                     *
+// *                        The Embedded Experts                        *
+// **********************************************************************
+// *                                                                    *
+// *            (c) 2014 - 2019 SEGGER Microcontroller GmbH             *
+// *            (c) 2001 - 2019 Rowley Associates Limited               *
+// *                                                                    *
+// *           www.segger.com     Support: support@segger.com           *
+// *                                                                    *
+// **********************************************************************
+// *                                                                    *
+// * All rights reserved.                                               *
+// *                                                                    *
+// * Redistribution and use in source and binary forms, with or         *
+// * without modification, are permitted provided that the following    *
+// * conditions are met:                                                *
+// *                                                                    *
+// * - Redistributions of source code must retain the above copyright   *
+// *   notice, this list of conditions and the following disclaimer.    *
+// *                                                                    *
+// * - Neither the name of SEGGER Microcontroller GmbH                  *
+// *   nor the names of its contributors may be used to endorse or      *
+// *   promote products derived from this software without specific     *
+// *   prior written permission.                                        *
+// *                                                                    *
+// * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND             *
+// * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,        *
+// * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF           *
+// * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE           *
+// * DISCLAIMED.                                                        *
+// * IN NO EVENT SHALL SEGGER Microcontroller GmbH BE LIABLE FOR        *
+// * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR           *
+// * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT  *
+// * OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;    *
+// * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF      *
+// * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT          *
+// * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE  *
+// * USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH   *
+// * DAMAGE.                                                            *
+// *                                                                    *
+// **********************************************************************
 //
 //
 //                           Preprocessor Definitions
@@ -31,17 +63,32 @@
 //   If defined, the .data_tcm, .text_tcm, .rodata_tcm and .bss_tcm sections 
 //   will be initialized.
 //
+// INITIALIZE_USER_SECTIONS
+//
+//   If defined, the function InitializeUserMemorySections will be called prior
+//   to entering main in order to allow the user to initialize any user defined
+//   memory sections.
+//
 // FULL_LIBRARY
 //
-//  If defined then 
-//    - argc, argv are setup by the debug_getargs.
-//    - the exit symbol is defined and executes on return from main.
-//    - the exit symbol calls destructors, atexit functions and then debug_exit.
+//   If defined then 
+//     - argc, argv are setup by the debug_getargs.
+//     - the exit symbol is defined and executes on return from main.
+//     - the exit symbol calls destructors, atexit functions and then debug_exit.
 //  
-//  If not defined then
-//    - argc and argv are zero.
-//    - the exit symbol is defined, executes on return from main and loops
+//   If not defined then
+//     - argc and argv are zero.
+//     - the exit symbol is defined, executes on return from main and loops
 //
+// STACK_CHECK
+//
+//   If defined will set the v8m msplim/psplim registers to the start of the stacks
+//
+// RETURN_FROM_CRT0
+//
+//   If defined, carry out a return to link register on application exit.
+//
+
 
 #ifndef APP_ENTRY_POINT
 #define APP_ENTRY_POINT main
@@ -57,9 +104,13 @@
   .global exit
   .weak exit
 
+#ifdef INITIALIZE_USER_SECTIONS
+  .extern InitializeUserMemorySections
+#endif
+
   .section .init, "ax"
   .code 16
-  .align 2
+  .balign 2
   .thumb_func
 
 _start:
@@ -73,13 +124,19 @@ _start:
   bics r1, r2
 #endif
   mov sp, r1
+#ifdef RETURN_FROM_CRT0
+  push {lr}
+#endif
 #ifdef INITIALIZE_STACK
   movs r2, #0xCC
   ldr r0, =__stack_start__
   bl memory_set
 #endif
+#ifdef STACK_CHECK
+  ldr r0, =__stack_start__
+  msr msplim, r0
+#endif
 1:
-
   /* Set up process stack if size > 0 */
   ldr r1, =__stack_process_end__
   ldr r0, =__stack_process_start__
@@ -96,16 +153,16 @@ _start:
   movs r2, #0xCC
   bl memory_set
 #endif
+#ifdef STACK_CHECK
+  ldr r0, =__stack_process_start__
+  msr psplim, r0
+#endif
 1:
 
-  /* Copy initialised memory sections into RAM (if necessary). */
+  /* Copy initialized memory sections into RAM (if necessary). */
   ldr r0, =__data_load_start__
   ldr r1, =__data_start__
   ldr r2, =__data_end__
-  bl memory_copy
-  ldr r0, =__start_nrf_sections
-  ldr r1, =__start_nrf_sections_run
-  ldr r2, =__end_nrf_sections_run
   bl memory_copy
   ldr r0, =__text_load_start__
   ldr r1, =__text_start__
@@ -182,7 +239,8 @@ _start:
   bl memory_set
 #endif /* #ifdef INITIALIZE_TCM_SECTIONS */
 
-  /* Initialise the heap */
+#if !defined(__HEAP_SIZE__) || (__HEAP_SIZE__)
+  /* Initialize the heap */
   ldr r0, = __heap_start__
   ldr r1, = __heap_end__
   subs r1, r1, r0
@@ -190,9 +248,14 @@ _start:
   blt 1f
   movs r2, #0
   str r2, [r0]
-  adds r0, r0, #4
-  str r1, [r0]
+  str r1, [r0, #4] 
 1:
+#endif
+
+#ifdef INITIALIZE_USER_SECTIONS
+  ldr r2, =InitializeUserMemorySections
+  blx r2
+#endif
 
   /* Call constructors */
   ldr r0, =__ctors_start__
@@ -241,7 +304,7 @@ dtor_loop:
   cmp r0, r1
   beq dtor_end
   ldr r2, [r0]
-  add r0, #4
+  adds r0, #4
   push {r0-r1}
   blx r2
   pop {r0-r1}
@@ -258,9 +321,15 @@ dtor_end:
   blx r2
 #endif
 
-  /* Returned from application entry point, loop forever. */
+  /* Returned from application entry point */
+#ifdef RETURN_FROM_CRT0
+  pop {r2}
+  bx r2
+#else
+  /* Loop forever */
 exit_loop:
   b exit_loop
+#endif
 
   .thumb_func
 memory_copy:
@@ -292,6 +361,7 @@ memory_set:
 
 .macro HELPER helper_name
   .section .text.\helper_name, "ax", %progbits
+  .balign 2
   .global \helper_name
   .weak \helper_name  
 \helper_name:
@@ -313,52 +383,18 @@ memory_set:
 HELPER __aeabi_read_tp
   ldr r0, =__tbss_start__-8
   bx lr
-HELPER __heap_lock
-  bx lr
-HELPER __heap_unlock
-  bx lr
-HELPER __printf_lock
-  bx lr
-HELPER __printf_unlock
-  bx lr
-HELPER __scanf_lock
-  bx lr
-HELPER __scanf_unlock
-  bx lr
-HELPER __debug_io_lock
-  bx lr
-HELPER __debug_io_unlock
-  bx lr
 HELPER abort
   b .
 HELPER __assert
   b .
 HELPER __aeabi_assert
   b .
-HELPER __cxa_pure_virtual
-  b .
-HELPER __cxa_guard_acquire
-  ldr r3, [r0]
-#if defined(__thumb__) && !defined(__thumb2__)
-  movs r0, #1
-  tst r3, r0
-#else
-  tst r3, #1
-#endif
-  beq 1f
-  movs r0, #0
-  bx lr
-1:
-  movs r0, #1
-  bx lr
-HELPER __cxa_guard_release
-  movs r3, #1
-  str r3, [r0]
-  bx lr
-HELPER __cxa_guard_abort
-  bx lr
 HELPER __sync_synchronize
   bx lr
+HELPER __getchar
+  JUMPTO debug_getchar
+HELPER __putchar
+  JUMPTO debug_putchar
 HELPER __open
   JUMPTO debug_fopen
 HELPER __close
